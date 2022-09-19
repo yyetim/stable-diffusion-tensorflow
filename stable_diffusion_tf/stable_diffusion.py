@@ -7,6 +7,7 @@ from .autoencoder_kl import Decoder
 from .diffusion_model import UNetModel
 from .clip_encoder import CLIPTextTransformer
 from .clip_tokeniser import SimpleTokenizer
+from . import convert_model
 
 text_max_len = 77
 
@@ -22,26 +23,25 @@ def get_model(img_height, img_width, download_weights=True):
     embeds = CLIPTextTransformer()([input_word_ids, input_pos_ids])
     text_encoder = tf.keras.models.Model([input_word_ids,input_pos_ids] , embeds)
 
-    
-
-    context = tf.keras.layers.Input((text_max_len,768))
-    t_emb = tf.keras.layers.Input((320,))
-    latent = tf.keras.layers.Input((n_h,n_w,4))
+    diffusion_input_names = ["latent", "time_embedding", "context"]
+    input_shapes = [(n_h,n_w,4), (320,), (text_max_len,768)]
+    print("input_shapes:", input_shapes)
+    diffusion_input_specs = [
+            tf.TensorSpec(shape=(None,) + s, dtype=tf.int32, name=n)
+            for s, n in zip(input_shapes, diffusion_input_names)
+    ]
+    print("input_specs:", diffusion_input_specs)
+    diffusion_inputs = [tf.keras.layers.Input(shape=s) for s in input_shapes]
     unet = UNetModel()
 
-    diffusion_input_shapes = [latent, t_emb, context]
-    diffusion_input_names = ["latent", "time_embedding", "context"]
-    diffusion_model = tf.keras.models.Model(
-            diffusion_model_input_shapes, unet([latent , t_emb, context])
-    )
-    diffusion_input_specs = [
-            tf.TensorSpec(shape=i, dtype=tf.int32, name=n)
-            for s, n in zip(diffusion_input_shapes, diffusion_input_names)
-    ]
+    output_model_dir = '/tmp/output'
 
-    latent = tf.keras.layers.Input((n_h,n_w,4))
+    diffusion_model = tf.keras.models.Model(
+            diffusion_inputs, unet(diffusion_inputs)
+    )
+
     decoder = Decoder()
-    decoder = tf.keras.models.Model(latent , decoder(latent))
+    decoder = tf.keras.models.Model(diffusion_inputs[0], decoder(diffusion_inputs[0]))
 
     if download_weights:
         decoder.load_weights(tf.keras.utils.get_file(
@@ -54,12 +54,16 @@ def get_model(img_height, img_width, download_weights=True):
             "https://huggingface.co/divamgupta/stable-diffusion-tensorflow/resolve/main/text_encoder.h5",
             hash_algorithm="sha256", file_hash="3e9645f40c00d5696aca18393c2c49ef825f495f2a312d14f1e537269329617f"))
 
-        diffusion_model.load_weights(tf.keras.utils.get_file(
-            "diffusion_model.h5",
-            "https://huggingface.co/divamgupta/stable-diffusion-tensorflow/resolve/main/diffusion_model.h5",
-            hash_algorithm="sha256", file_hash="c28f8a1f6296d8eb4d9469041065e480f823871c1dcc7689be9e8f4cc7e048a0"))
+        if not output_model_dir:
+            diffusion_model.load_weights(tf.keras.utils.get_file(
+                "diffusion_model.h5",
+                "https://huggingface.co/divamgupta/stable-diffusion-tensorflow/resolve/main/diffusion_model.h5",
+                hash_algorithm="sha256", file_hash="c28f8a1f6296d8eb4d9469041065e480f823871c1dcc7689be9e8f4cc7e048a0"))
 
-    return text_encoder, diffusion_model, decoder
+    wrapped_diffusion_model = convert_model.wrap_and_convert3(
+        diffusion_model, diffusion_input_specs, output_model_dir)
+
+    return text_encoder, wrapped_diffusion_model, decoder
 
 
 

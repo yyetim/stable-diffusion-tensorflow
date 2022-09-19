@@ -1,6 +1,8 @@
 from stable_diffusion_tf.stable_diffusion import get_model, text2image
 import argparse
 
+import tensorflow as tf
+
 
 parser = argparse.ArgumentParser()
 
@@ -41,6 +43,10 @@ args = parser.parse_args()
 
 text_encoder, diffusion_model, decoder = get_model(512, 512, download_weights=True)
 
+resolver = tf.distribute.cluster_resolver.TPUClusterResolver('')
+tf.config.experimental_connect_to_cluster(resolver)
+tf.tpu.experimental.initialize_tpu_system(resolver)
+tf.config.experimental.enable_mlir_bridge()
 
 
 img = text2image(args.prompt , 
