@@ -44,7 +44,7 @@ def wrap_and_convert3(model, input_specs, output_model_dir=None):
 
     new_model = tf.saved_model.load(output_model_dir)
     serving_signature = 'serving_default'
-    serving_fn = model.signatures[serving_signature]
+    serving_fn = new_model.signatures[serving_signature]
 
     def single_batch_function(inp1, inp2, inp3):
         inp1_e, inp2_e, inp3_e = [tf.expand_dims(i, axis=0) for i in (inp1, inp2, inp3)]

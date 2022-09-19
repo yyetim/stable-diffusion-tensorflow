@@ -41,12 +41,12 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-text_encoder, diffusion_model, decoder = get_model(512, 512, download_weights=True)
-
-resolver = tf.distribute.cluster_resolver.TPUClusterResolver('')
+resolver = tf.distribute.cluster_resolver.TPUClusterResolver('local')
 tf.config.experimental_connect_to_cluster(resolver)
 tf.tpu.experimental.initialize_tpu_system(resolver)
 tf.config.experimental.enable_mlir_bridge()
+
+text_encoder, diffusion_model, decoder = get_model(512, 512, download_weights=True)
 
 
 img = text2image(args.prompt , 
