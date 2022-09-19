@@ -10,7 +10,6 @@ from .clip_tokeniser import SimpleTokenizer
 
 text_max_len = 77
 
-
 def get_model(img_height, img_width, download_weights=True):
     text_max_len = 77
     n_h = img_height//8
@@ -30,14 +29,21 @@ def get_model(img_height, img_width, download_weights=True):
     latent = tf.keras.layers.Input((n_h,n_w,4))
     unet = UNetModel()
 
-    diffusion_model = tf.keras.models.Model([latent , t_emb, context ] , unet([latent , t_emb, context]))
+    diffusion_input_shapes = [latent, t_emb, context]
+    diffusion_input_names = ["latent", "time_embedding", "context"]
+    diffusion_model = tf.keras.models.Model(
+            diffusion_model_input_shapes, unet([latent , t_emb, context])
+    )
+    diffusion_input_specs = [
+            tf.TensorSpec(shape=i, dtype=tf.int32, name=n)
+            for s, n in zip(diffusion_input_shapes, diffusion_input_names)
+    ]
 
     latent = tf.keras.layers.Input((n_h,n_w,4))
     decoder = Decoder()
     decoder = tf.keras.models.Model(latent , decoder(latent))
 
     if download_weights:
-
         decoder.load_weights(tf.keras.utils.get_file(
             "decoder.h5",
             "https://huggingface.co/divamgupta/stable-diffusion-tensorflow/resolve/main/decoder.h5",
