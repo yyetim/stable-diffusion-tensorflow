@@ -17,7 +17,7 @@ parser.add_argument(
     "--output",
     type=str,
     nargs="?",
-    default="output.png",
+    default="output",
     help="where to save the output image",
 )
 
@@ -53,6 +53,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--batch_size",
+    type=int,
+    default=1,
+    help="how many images to generate",
+)
+
+parser.add_argument(
     "--mp",
     default=False,
     action="store_true",
@@ -71,8 +78,18 @@ img = generator.generate(
     num_steps=args.steps,
     unconditional_guidance_scale=args.scale,
     temperature=1,
-    batch_size=1,
+    batch_size=args.batch_size,
     seed=args.seed,
 )
-Image.fromarray(img[0]).save(args.output)
-print(f"saved at {args.output}")
+
+fname = args.output
+if fname.endswith(".png"):
+    fname = fname[:-4]
+if args.batch_size == 1:
+    Image.fromarray(img[0]).save(args.output + ".png")
+    print(f"saved at {args.output}.png")
+else:
+    for i in range(args.batch_size):
+        fname_i = f"{fname}_{i}.png"
+        Image.fromarray(img[i]).save(fname_i)
+        print(f"saved at {fname_i}")
