@@ -21,7 +21,7 @@ class Text2Image:
         self.img_width = round(img_width/128) * 128
         self.tokenizer = SimpleTokenizer()
 
-        text_encoder, diffusion_model, decoder = get_models(img_height, img_width)
+        text_encoder, diffusion_model, decoder = get_models(self.img_height, self.img_width)
         self.text_encoder = text_encoder
         self.diffusion_model = diffusion_model
         self.decoder = decoder
