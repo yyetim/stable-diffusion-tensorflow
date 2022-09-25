@@ -16,11 +16,12 @@ MAX_TEXT_LEN = 77
 
 class Text2Image:
     def __init__(self, img_height=1000, img_width=1000, jit_compile=False):
-        self.img_height = img_height
-        self.img_width = img_width
+        # UNet requires multiples of 2**7 = 128 to prevent dimension mismatch
+        self.img_height = round(img_height/128) * 128
+        self.img_width = round(img_width/128) * 128
         self.tokenizer = SimpleTokenizer()
 
-        text_encoder, diffusion_model, decoder = get_models(img_height, img_width)
+        text_encoder, diffusion_model, decoder = get_models(self.img_height, self.img_width)
         self.text_encoder = text_encoder
         self.diffusion_model = diffusion_model
         self.decoder = decoder
