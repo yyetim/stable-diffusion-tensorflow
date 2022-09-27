@@ -1,3 +1,4 @@
+import os
 import tensorflow as tf
 import tempfile
 import subprocess
@@ -9,46 +10,63 @@ tpu_functions {
 }
 """
 
-def make_docker_command(input_dir, output_dir):
-    return [
-        'docker', 'run', '--mount',
-        f'type=bind,source={input_dir},target=/tmp/input,readonly',
-        '--mount',
-        f'type=bind,source={output_dir},target=/tmp/output',
-        'gcr.io/cloud-tpu-v2-images-dev/tpu_inference_converter_cli:cl_474604298',
-        '--input_model_dir=/tmp/input', '--output_model_dir=/tmp/output',
-        '--converter_options_string=\'tpu_functions { function_alias: "tpu_func"}\''
-    ]
+
+def run_docker_command(input_dir, output_dir):
+    docker_output = subprocess.check_output(
+        [
+            "docker",
+            "run",
+            "--mount",
+            f"type=bind,source={input_dir},target=/tmp/input,readonly",
+            "--mount",
+            f"type=bind,source={output_dir},target=/tmp/output",
+            "gcr.io/cloud-tpu-v2-images-dev/tpu_inference_converter_cli:cl_474604298",
+            "--input_model_dir=/tmp/input",
+            "--output_model_dir=/tmp/output",
+            '--converter_options_string=tpu_functions { function_alias: "tpu_func"}',
+        ]
+    )
+    print(docker_output)
+    sudo_output = subprocess.check_output(
+        ["sudo", "chown", "-R", os.getenv("USER"), f"{output_dir}"]
+    )
+    print(sudo_output)
+
 
 def wrap_and_convert3(model, input_specs, output_model_dir=None):
+    serving_signature = "serving_default"
     if not output_model_dir:
+
+        @tf.function
+        def model_body(model_inputs):
+            return model(model_inputs)
+
         @tf.function(input_signature=input_specs)
         def model_func(inp1, inp2, inp3):
-            return model([inp1, inp2, inp3])
+            return model_body([inp1, inp2, inp3])
 
         input_model_dir = tempfile.mkdtemp()
         output_model_dir = tempfile.mkdtemp()
 
         print("i/o dirs: ", input_model_dir, output_model_dir)
 
-        signatures = {'serving_default': model_func.get_concrete_function()}
-        save_options = tf.saved_model.SaveOptions(function_aliases={
-            'tpu_func': model_func,
-        })
+        signatures = {serving_signature: model_func.get_concrete_function()}
+        save_options = tf.saved_model.SaveOptions(
+            function_aliases={
+                "tpu_func": model_func,
+            }
+        )
         tf.saved_model.save(model, input_model_dir, signatures, save_options)
 
-        command_out = subprocess.check_output(
-            make_docker_command(input_model_dir, output_model_dir)
-        )
+        command_out = run_docker_command(input_model_dir, output_model_dir)
         print(command_out)
 
     new_model = tf.saved_model.load(output_model_dir)
-    serving_signature = 'serving_default'
     serving_fn = new_model.signatures[serving_signature]
 
-    def single_batch_function(inp1, inp2, inp3):
+    def single_batch_function(func_inputs3):
+        inp1, inp2, inp3 = func_inputs3
         inp1_e, inp2_e, inp3_e = [tf.expand_dims(i, axis=0) for i in (inp1, inp2, inp3)]
-        return serving_fn(inp1_e, inp2_e, inp3_e)
-        
+        return serving_fn(latent=inp1_e, time_embedding=inp2_e, context=inp3_e)
 
     return single_batch_function

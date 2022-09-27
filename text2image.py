@@ -46,7 +46,14 @@ tf.config.experimental_connect_to_cluster(resolver)
 tf.tpu.experimental.initialize_tpu_system(resolver)
 tf.config.experimental.enable_mlir_bridge()
 
-text_encoder, diffusion_model, decoder = get_model(512, 512, download_weights=True)
+
+tf.profiler.experimental.server.start(6000)
+
+strategy = tf.distribute.TPUStrategy(
+    tpu_cluster_resolver=resolver,
+    ) 
+with strategy.scope():
+    text_encoder, diffusion_model, decoder = get_model(512, 512, download_weights=True)
 
 
 img = text2image(args.prompt , 
