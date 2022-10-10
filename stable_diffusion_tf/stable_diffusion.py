@@ -10,19 +10,23 @@ from .diffusion_model import UNetModel
 from .clip_encoder import CLIPTextTransformer
 from .clip_tokenizer import SimpleTokenizer
 from .constants import _UNCONDITIONAL_TOKENS, _ALPHAS_CUMPROD
-from .convert_model import wrap_and_convert2, wrap_and_convert3
+from .convert_model import wrap_and_convert
 
 MAX_TEXT_LEN = 77
 
 
 class Text2Image:
-    def __init__(self, img_height=1000, img_width=1000, jit_compile=False, resolver=None):
+    def __init__(
+        self, img_height=1000, img_width=1000, jit_compile=False, resolver=None
+    ):
         # UNet requires multiples of 2**7 = 128 to prevent dimension mismatch
-        self.img_height = round(img_height/128) * 128
-        self.img_width = round(img_width/128) * 128
+        self.img_height = round(img_height / 128) * 128
+        self.img_width = round(img_width / 128) * 128
         self.tokenizer = SimpleTokenizer()
 
-        text_encoder, diffusion_model, decoder = get_models(self.img_height, self.img_width, resolver=resolver)
+        text_encoder, diffusion_model, decoder = get_models(
+            self.img_height, self.img_width, resolver=resolver
+        )
         self.text_encoder = text_encoder
         self.diffusion_model = diffusion_model
         self.decoder = decoder
@@ -50,14 +54,14 @@ class Text2Image:
         # Encode prompt tokens (and their positions) into a "context vector"
         pos_ids = np.array(list(range(77)))[None].astype("int32")
         pos_ids = np.repeat(pos_ids, batch_size, axis=0)
-        context = self.text_encoder([phrase, pos_ids])
+        context = self.text_encoder.predict_on_batch([phrase, pos_ids])
 
         # Encode unconditional tokens (and their positions into an
         # "unconditional context vector"
         unconditional_tokens = np.array(_UNCONDITIONAL_TOKENS)[None].astype("int32")
         unconditional_tokens = np.repeat(unconditional_tokens, batch_size, axis=0)
         self.unconditional_tokens = tf.convert_to_tensor(unconditional_tokens)
-        unconditional_context = self.text_encoder(
+        unconditional_context = self.text_encoder.predict_on_batch(
             [self.unconditional_tokens, pos_ids]
         )
         timesteps = np.arange(1, 1000, 1000 // num_steps)
@@ -83,7 +87,7 @@ class Text2Image:
             )
 
         # Decoding stage
-        decoded = self.decoder.predict_on_batch(latent)
+        decoded = self.decoder.predict_on_batch([latent])
         decoded = ((decoded + 1) / 2) * 255
         return np.clip(decoded, 0, 255).astype("uint8")
 
@@ -108,10 +112,10 @@ class Text2Image:
         timesteps = np.array([t])
         t_emb = self.timestep_embedding(timesteps)
         t_emb = np.repeat(t_emb, batch_size, axis=0)
-        unconditional_latent = self.diffusion_model(
+        unconditional_latent = self.diffusion_model.predict_on_batch(
             [latent, t_emb, unconditional_context]
         )
-        latent = self.diffusion_model([latent, t_emb, context])
+        latent = self.diffusion_model.predict_on_batch([latent, t_emb, context])
         return unconditional_latent + unconditional_guidance_scale * (
             latent - unconditional_latent
         )
@@ -142,29 +146,41 @@ def get_models(img_height, img_width, download_weights=True, resolver=None):
 
     # Create text encoder
     encoder_input_specs = [
-            tf.TensorSpec(shape=(None, MAX_TEXT_LEN), dtype=tf.int32, name="input_word_ids"),
-            tf.TensorSpec(shape=(None, MAX_TEXT_LEN), dtype=tf.int32, name="input_pos_ids"),
+        tf.TensorSpec(
+            shape=(None, MAX_TEXT_LEN), dtype=tf.int32, name="input_word_ids"
+        ),
+        tf.TensorSpec(shape=(None, MAX_TEXT_LEN), dtype=tf.int32, name="input_pos_ids"),
     ]
     input_word_ids, input_pos_ids = [
-            keras.layers.Input(shape=s.shape[1:], dtype=s.dtype) for s in encoder_input_specs
+        keras.layers.Input(shape=s.shape[1:], dtype=s.dtype)
+        for s in encoder_input_specs
     ]
     embeds = CLIPTextTransformer()([input_word_ids, input_pos_ids])
     text_encoder = keras.models.Model([input_word_ids, input_pos_ids], embeds)
 
     # Creation diffusion UNet
     diffusion_input_specs = [
-            tf.TensorSpec(shape=(None, n_h, n_w, 4), name = "latent"),
-            tf.TensorSpec(shape=(None, 320,), name = "t_emb"),
-            tf.TensorSpec(shape=(None, MAX_TEXT_LEN, 768), name="context"),
+        tf.TensorSpec(shape=(None, n_h, n_w, 4), name="latent"),
+        tf.TensorSpec(
+            shape=(
+                None,
+                320,
+            ),
+            name="t_emb",
+        ),
+        tf.TensorSpec(shape=(None, MAX_TEXT_LEN, 768), name="context"),
     ]
-    latent, t_emb, context = [keras.layers.Input(s.shape[1:]) for s in diffusion_input_specs]
+    latent, t_emb, context = [
+        keras.layers.Input(s.shape[1:]) for s in diffusion_input_specs
+    ]
     unet = UNetModel()
     diffusion_model = keras.models.Model(
         [latent, t_emb, context], unet([latent, t_emb, context])
     )
 
     # Create decoder
-    latent = keras.layers.Input((n_h, n_w, 4))
+    decoder_input_spec = tf.TensorSpec(shape=(None, n_h, n_w, 4), name="latent")
+    latent = keras.layers.Input(decoder_input_spec.shape[1:])
     decoder = Decoder()
     decoder = keras.models.Model(latent, decoder(latent))
 
@@ -182,8 +198,9 @@ def get_models(img_height, img_width, download_weights=True, resolver=None):
     )
 
     text_encoder.load_weights(text_encoder_weights_fpath)
-    text_encoder = wrap_and_convert2(text_encoder, encoder_input_specs)
+    text_encoder = wrap_and_convert(text_encoder, encoder_input_specs)
     diffusion_model.load_weights(diffusion_model_weights_fpath)
-    diffusion_model = wrap_and_convert3(diffusion_model, diffusion_input_specs)
+    diffusion_model = wrap_and_convert(diffusion_model, diffusion_input_specs)
     decoder.load_weights(decoder_weights_fpath)
+    decoder = wrap_and_convert(decoder, [decoder_input_spec])
     return text_encoder, diffusion_model, decoder
